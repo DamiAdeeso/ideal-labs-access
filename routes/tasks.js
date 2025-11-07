@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
+const taskService = require('../services/taskService');
 const validateTask = require('../middleware/validateTask');
+const { ErrorCodes, ErrorMessages } = require('../constants/errorCodes');
 
 /**
  * @swagger
@@ -21,8 +22,8 @@ const validateTask = require('../middleware/validateTask');
  */
 router.get('/', async (req, res, next) => {
   try {
-    const result = await pool.query('SELECT id, title, completed FROM tasks ORDER BY created_at DESC');
-    res.json(result.rows);
+    const tasks = await taskService.getAllTasks();
+    res.status(200).json(tasks);
   } catch (error) {
     next(error);
   }
@@ -66,11 +67,8 @@ router.get('/', async (req, res, next) => {
 router.post('/', validateTask, async (req, res, next) => {
   try {
     const { title, completed = false } = req.body;
-    const result = await pool.query(
-      'INSERT INTO tasks (title, completed) VALUES ($1, $2) RETURNING id, title, completed',
-      [title.trim(), completed]
-    );
-    res.status(201).json(result.rows[0]);
+    const task = await taskService.createTask(title, completed);
+    res.status(201).json(task);
   } catch (error) {
     next(error);
   }
@@ -129,16 +127,16 @@ router.put('/:id', validateTask, async (req, res, next) => {
     const { id } = req.params;
     const { title, completed } = req.body;
     
-    const result = await pool.query(
-      'UPDATE tasks SET title = $1, completed = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING id, title, completed',
-      [title.trim(), completed, id]
-    );
+    const task = await taskService.updateTask(id, title, completed);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found' });
+    if (!task) {
+      return res.status(404).json({ 
+        error: ErrorMessages[ErrorCodes.TASK_NOT_FOUND],
+        code: ErrorCodes.TASK_NOT_FOUND
+      });
     }
     
-    res.json(result.rows[0]);
+    res.status(200).json(task);
   } catch (error) {
     next(error);
   }
@@ -170,10 +168,13 @@ router.put('/:id', validateTask, async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM tasks WHERE id = $1 RETURNING id', [id]);
+    const task = await taskService.deleteTask(id);
     
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found' });
+    if (!task) {
+      return res.status(404).json({ 
+        error: ErrorMessages[ErrorCodes.TASK_NOT_FOUND],
+        code: ErrorCodes.TASK_NOT_FOUND
+      });
     }
     
     res.status(204).send();
@@ -212,21 +213,16 @@ router.delete('/:id', async (req, res, next) => {
 router.patch('/:id/completed', async (req, res, next) => {
   try {
     const { id } = req.params;
+    const task = await taskService.toggleTaskCompleted(id);
     
-    const checkResult = await pool.query('SELECT completed FROM tasks WHERE id = $1', [id]);
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Task not found' });
+    if (!task) {
+      return res.status(404).json({ 
+        error: ErrorMessages[ErrorCodes.TASK_NOT_FOUND],
+        code: ErrorCodes.TASK_NOT_FOUND
+      });
     }
     
-    const newCompleted = !checkResult.rows[0].completed;
-    
-    const result = await pool.query(
-      'UPDATE tasks SET completed = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING id, title, completed',
-      [newCompleted, id]
-    );
-    
-    res.json(result.rows[0]);
+    res.status(200).json(task);
   } catch (error) {
     next(error);
   }
